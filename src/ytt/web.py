@@ -15,9 +15,7 @@ PORT = int(os.environ.get("YTT_PORT", "5005"))
 LLM = os.environ.get("YTT_LLM_BIN", shutil.which("llm") or "llm")
 PROMPT = os.environ.get(
     "YTT_LLM_PROMPT",
-    "Summarize this video transcript. Lead with the central claim, then the "
-    "supporting points in the order they are made. Note anything the speaker "
-    "asserts without evidence.",
+    "Summarize this video transcript."
 )
 
 app = Flask(__name__)

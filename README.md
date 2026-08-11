@@ -1,0 +1,1 @@
+Use `uv run ytt-web` to run server. 
