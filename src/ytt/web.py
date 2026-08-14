@@ -12,7 +12,8 @@ from flask import Flask, Response, request, stream_with_context
 
 HOST = os.environ.get("YTT_HOST", "127.0.0.1")
 PORT = int(os.environ.get("YTT_PORT", "5005"))
-LLM = os.environ.get("YTT_LLM_BIN", shutil.which("llm") or "llm")
+LLM_BIN = os.environ.get("YTT_LLM_BIN", shutil.which("llm") or "llm")
+LLM_MODEL = os.environ.get("YTT_LLM_MODEL", "gpt-oss:20b")
 PROMPT = os.environ.get(
     "YTT_LLM_PROMPT",
     "Summarize this video transcript."
@@ -86,7 +87,7 @@ def summarize():
                 fh.write(out)
 
             is_empty = True
-            for chunk in run_stream([LLM, "-m", "gpt-oss:20b", "-f", str(tmp), PROMPT]):
+            for chunk in run_stream([LLM_BIN, "-m", LLM_MODEL, "-f", str(tmp), PROMPT]):
                 if chunk.strip():
                     is_empty = False
                 yield ndjson("delta", chunk)
