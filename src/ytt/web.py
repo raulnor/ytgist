@@ -71,7 +71,6 @@ def summarize():
  
     @stream_with_context
     def generate():
-        tmp = None
         try:
             yield ndjson("status", "Fetching transcript")
             ts = fetch_transcript_if_needed(target)
@@ -93,14 +92,10 @@ def summarize():
                              "Model returned nothing. Check `llm logs -n 1`.")
                 return
 
- 
             yield ndjson("done", "")
         except Exception as e:
             traceback.print_exc(file=sys.stderr)
             yield ndjson("error", str(e))
-        finally:
-            if tmp:
-                tmp.unlink(missing_ok=True)
  
     return Response(
         generate(),

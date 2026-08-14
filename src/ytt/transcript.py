@@ -18,11 +18,11 @@ def cache_dir() -> Path:
 
 def get_video_id(url_or_id):
     """Extract video ID from URL if it's a full URL"""
-    video_id_match = re.search(r'(?:v=|/)([a-zA-Z0-9_-]{11})', url_or_id)
+    video_id_match = re.search(r'([a-zA-Z0-9_-]{11})', url_or_id)
     if video_id_match:
         return video_id_match.group(1)
     else:
-        return url_or_id # Assume it's already a video ID
+        raise RuntimeError(f"video_id not found in {url_or_id}")
 
 def get_transcript_path(url_or_id):
     video_id = get_video_id(url_or_id)
@@ -46,6 +46,7 @@ def fetch_transcript_if_needed(url_or_id):
         print(f"fetch_transcript_if_needed: cached {f}", file=sys.stderr)
         return f.read_text()
     else:
+        print(f"fetch_transcript_if_needed: downloading {f}", file=sys.stderr)
         text = fetch_transcript(video_id)
         if text.strip():
             cache.mkdir(parents=True, exist_ok=True)
