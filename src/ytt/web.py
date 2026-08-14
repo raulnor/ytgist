@@ -7,8 +7,9 @@ import sys
 import tempfile
 import traceback
 from pathlib import Path
-
 from flask import Flask, Response, request, stream_with_context
+
+from ytt.transcript import get_transcript_path, fetch_transcript_if_needed
 
 HOST = os.environ.get("YTT_HOST", "127.0.0.1")
 PORT = int(os.environ.get("YTT_PORT", "5005"))
@@ -73,21 +74,17 @@ def summarize():
         tmp = None
         try:
             yield ndjson("status", "Fetching transcript")
-            out, err, code = run_capture(["yt-transcript", target])
-            if code != 0 or not out.strip():
-                yield ndjson("error", err.strip() or "ytt returned nothing.")
+            ts = fetch_transcript_if_needed(target)
+            if not ts.strip():
+                yield ndjson("error", err.strip() or "Transcript empty.")
                 return
  
-            yield ndjson("transcript", out)
+            yield ndjson("transcript", ts)
             yield ndjson("status", "Summarizing")
  
-            fd, path = tempfile.mkstemp(suffix=".txt", prefix="ytt-")
-            tmp = Path(path)
-            with os.fdopen(fd, "w") as fh:
-                fh.write(out)
-
+            path = get_transcript_path(target)
             is_empty = True
-            for chunk in run_stream([LLM_BIN, "-m", LLM_MODEL, "-f", str(tmp), PROMPT]):
+            for chunk in run_stream([LLM_BIN, "-m", LLM_MODEL, "-f", str(path), PROMPT]):
                 if chunk.strip():
                     is_empty = False
                 yield ndjson("delta", chunk)
