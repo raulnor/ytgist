@@ -109,7 +109,26 @@ PAGE = """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ytt</title>
-<style></style>
+<style>
+:root { 
+    color-scheme: light dark; 
+    --muted: light-dark(#595959, #9e9e9e);
+    --danger: light-dark(#b3261e, #ff6b6b);
+}
+body { font: 16px/1.5 system-ui, sans-serif; margin: 0; }
+main { max-width: 46rem; margin: 0 auto; padding: 1.5rem 1rem 4rem; }
+h1 { font-size: 1.25rem; }
+#f { display: flex; gap: .5rem; margin-bottom: 1rem; }
+#url { flex: 1; min-width: 0; padding: .5rem; font: inherit; }
+#go { padding: .5rem 1rem; font: inherit; cursor: pointer; }
+#go:disabled { opacity: .75; cursor: progress; }
+#status { min-height: 1.5em; color: var(--muted); font-size: .875rem; }
+#status.error { color: var(--danger); }
+summary { cursor: pointer; font-weight: 600; margin: 1rem 0 .5rem; }
+#summary > :first-child { margin-top: 0; }
+#summary.raw, #transcript { white-space: pre-wrap; font: inherit; }
+#transcript { max-height: 60vh; overflow: auto; color: var(--muted); }
+</style>
 </head>
 <body>
 <main>
