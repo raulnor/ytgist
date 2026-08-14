@@ -76,7 +76,7 @@ def summarize():
             yield ndjson("status", "Fetching transcript")
             ts = fetch_transcript_if_needed(target)
             if not ts.strip():
-                yield ndjson("error", err.strip() or "Transcript empty.")
+                yield ndjson("error", "Transcript empty.")
                 return
  
             yield ndjson("transcript", ts)
@@ -84,7 +84,7 @@ def summarize():
  
             path = get_transcript_path(target)
             is_empty = True
-            for chunk in run_stream([LLM_BIN, "-m", LLM_MODEL, "-f", str(path), PROMPT]):
+            for chunk in run_stream([LLM_BIN, "-m", LLM_MODEL, "-f", str(path), "-o", "num_ctx", "32768", PROMPT]):
                 if chunk.strip():
                     is_empty = False
                 yield ndjson("delta", chunk)

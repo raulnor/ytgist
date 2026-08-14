@@ -31,22 +31,19 @@ def get_transcript_path(url_or_id):
 
 def fetch_transcript(url_or_id):
     """Download from YouTube."""
-    try:
-        ytt_api = YouTubeTranscriptApi()
-        video_id = get_video_id(url_or_id)
-        transcript = ytt_api.fetch(video_id)
-        formatter = TextFormatter()
-        return formatter.format_transcript(transcript)
-    except Exception as e:
-        print(f'Error: {e}', file=sys.stderr)
-        sys.exit(1)
+    ytt_api = YouTubeTranscriptApi()
+    video_id = get_video_id(url_or_id)
+    transcript = ytt_api.fetch(video_id)
+    formatter = TextFormatter()
+    return formatter.format_transcript(transcript)
+    
 
 def fetch_transcript_if_needed(url_or_id):
     video_id = get_video_id(url_or_id)
     cache = cache_dir()
     f = cache/f"{video_id}.txt"
     if f.exists() and f.stat().st_size > 0:
-        print(f"ytt: cached {f}", file=sys.stderr)
+        print(f"fetch_transcript_if_needed: cached {f}", file=sys.stderr)
         return f.read_text()
     else:
         text = fetch_transcript(video_id)
@@ -56,11 +53,15 @@ def fetch_transcript_if_needed(url_or_id):
         return text
 
 def main():
-    if len(sys.argv) < 2:
-        print('Usage: provide YouTube URL or video_id as argument', file=sys.stderr)
+    try:
+        if len(sys.argv) < 2:
+            print('Usage: provide YouTube URL or video_id as argument', file=sys.stderr)
+            sys.exit(1)
+        url_or_id = sys.argv[1]
+        print(fetch_transcript_if_needed(url_or_id))
+    except Exception as e:
+        print(f'Error: {e}', file=sys.stderr)
         sys.exit(1)
-    url_or_id = sys.argv[1]
-    print(fetch_transcript_if_needed(url_or_id))
 
 if __name__ == '__main__':
     main()
