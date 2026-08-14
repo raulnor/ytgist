@@ -16,9 +16,11 @@ def cache_dir() -> Path:
         return Path(os.environ.get("LOCALAPPDATA", Path.home()))/dir
     return Path.home()/".cache"/dir
 
+VIDEO_ID_REGEX = re.compile(r'(?:^|v=|/)([a-zA-Z0-9_-]{11})(?![a-zA-Z0-9_-])')
+
 def get_video_id(url_or_id):
     """Extract video ID from URL if it's a full URL"""
-    video_id_match = re.search(r'([a-zA-Z0-9_-]{11})', url_or_id)
+    video_id_match = re.search(VIDEO_ID_REGEX, url_or_id)
     if video_id_match:
         return video_id_match.group(1)
     else:
