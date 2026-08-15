@@ -9,7 +9,9 @@ import traceback
 from pathlib import Path
 from flask import Flask, Response, request, stream_with_context
 
-from ytgist.transcript import get_transcript_path, fetch_transcript_if_needed
+from ytgist.db import add_summary, ensure_video
+from ytgist.metadata import fetch_title, get_youtube_url
+from ytgist.transcript import fetch_transcript_if_needed, get_transcript_path, get_video_id
 
 HOST = os.environ.get("YTT_HOST", "127.0.0.1")
 PORT = int(os.environ.get("YTT_PORT", "5005"))
@@ -73,6 +75,10 @@ def summarize():
     def generate():
         try:
             yield ndjson("status", "Fetching transcript")
+            video_id = get_video_id(target)
+            url = get_youtube_url(video_id)
+            title = fetch_title(video_id)
+            ensure_video(video_id, url, title)
             ts = fetch_transcript_if_needed(target)
             if not ts.strip():
                 yield ndjson("error", "Transcript empty.")
@@ -83,15 +89,17 @@ def summarize():
  
             path = get_transcript_path(target)
             is_empty = True
+            summary = ""
             for chunk in run_stream([LLM_BIN, "-m", LLM_MODEL, "-f", str(path), "-o", "num_ctx", "32768", PROMPT]):
                 if chunk.strip():
+                    summary += chunk
                     is_empty = False
                 yield ndjson("delta", chunk)
             if is_empty:
                 yield ndjson("error",
                              "Model returned nothing. Check `llm logs -n 1`.")
                 return
-
+            add_summary(video_id, LLM_MODEL, PROMPT, summary)
             yield ndjson("done", "")
         except Exception as e:
             traceback.print_exc(file=sys.stderr)
@@ -108,7 +116,7 @@ PAGE = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ytt</title>
+<title>YouTube Gist</title>
 <style>
 :root { 
     color-scheme: light dark; 
@@ -132,7 +140,7 @@ summary { cursor: pointer; font-weight: 600; margin: 1rem 0 .5rem; }
 </head>
 <body>
 <main>
-  <h1>ytt</h1>
+  <h1>YouTube Gist</h1>
   <form id="f">
     <input id="url" name="url" placeholder="YouTube URL or video ID"
            autocomplete="off" autofocus>

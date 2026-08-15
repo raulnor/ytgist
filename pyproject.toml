@@ -14,6 +14,7 @@ dependencies = [
 ]
 
 [project.scripts]
+ytgist = "ytgist.cli:main"
 ytgist-get-transcript = "ytgist.transcript:main"
 ytgist-web = "ytgist.web:main"
 
