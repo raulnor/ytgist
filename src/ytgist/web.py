@@ -9,7 +9,7 @@ import traceback
 from pathlib import Path
 from flask import Flask, Response, request, stream_with_context
 
-from ytt.transcript import get_transcript_path, fetch_transcript_if_needed
+from ytgist.transcript import get_transcript_path, fetch_transcript_if_needed
 
 HOST = os.environ.get("YTT_HOST", "127.0.0.1")
 PORT = int(os.environ.get("YTT_PORT", "5005"))

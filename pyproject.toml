@@ -1,7 +1,7 @@
 [project]
-name = "ytt"
+name = "ytgist"
 version = "0.1.0"
-description = "Add your description here"
+description = "YouTube Gist: Web UI to grab and summarize transcripts"
 readme = "README.md"
 authors = [
     { name = "Travis Luckenbaugh", email = "tluckenbaugh@gmail.com" }
@@ -14,8 +14,8 @@ dependencies = [
 ]
 
 [project.scripts]
-ytt-get-transcript = "ytt.transcript:main"
-ytt-web = "ytt.web:main"
+ytgist-get-transcript = "ytgist.transcript:main"
+ytgist-web = "ytgist.web:main"
 
 [build-system]
 requires = ["uv_build>=0.11.25,<0.12.0"]

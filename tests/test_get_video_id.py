@@ -1,6 +1,6 @@
 import pytest
 
-from ytt.transcript import get_video_id
+from ytgist.transcript import get_video_id
 
 VID = "dQw4w9WgXcQ"
 
