@@ -1,23 +1,19 @@
 import argparse
 import json
 import os
-import shutil
-import subprocess
 import sys
-import tempfile
 import traceback
-from pathlib import Path
 from flask import Flask, Response, request, stream_with_context
 
 from ytgist.db import add_summary, ensure_video
+from ytgist.llm import stream_summary_for_transcript_file, get_llm_models_if_needed
 from ytgist.metadata import fetch_title, get_youtube_url
 from ytgist.transcript import fetch_transcript_if_needed, get_transcript_path, get_video_id
 
 HOST = os.environ.get("YTT_HOST", "127.0.0.1")
 PORT = int(os.environ.get("YTT_PORT", "5005"))
-LLM_BIN = os.environ.get("YTT_LLM_BIN", shutil.which("llm") or "llm")
 LLM_MODEL = os.environ.get("YTT_LLM_MODEL", "gpt-oss:20b")
-PROMPT = os.environ.get(
+LLM_PROMPT = os.environ.get(
     "YTT_LLM_PROMPT",
     "Summarize this video transcript."
 )
@@ -26,51 +22,33 @@ app = Flask(__name__)
 
 def ndjson(kind, text):
     return json.dumps({"type": kind, "text": text}, ensure_ascii=False) + "\n"
- 
- 
-def run_capture(cmd):
-    """Run to completion. Returns (stdout, stderr, returncode)."""
-    p = subprocess.run(cmd, capture_output=True, text=True)
-    return p.stdout, p.stderr, p.returncode
- 
- 
-def run_stream(cmd):
-    """Yield stdout chunks as they arrive. Raises RuntimeError on failure.
- 
-    read1() returns as soon as any bytes are available; readline() would block
-    until a newline, which a generated summary may not produce for a while.
-    Children get PYTHONUNBUFFERED so a Python child doesn't block-buffer its
-    pipe and hand us everything at the end.
-    """
-    env = {**os.environ, "PYTHONUNBUFFERED": "1"}
-    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
-    try:
-        while chunk := p.stdout.read1(4096):
-            yield chunk.decode("utf-8", errors="replace")
-    finally:
-        p.stdout.close()
-        if p.poll() is None:
-            p.terminate()
-            try:
-                p.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                p.kill()
-        err = p.stderr.read().decode("utf-8", errors="replace")
-        p.stderr.close()
-        if p.returncode not in (0, -15, -9):
-            raise RuntimeError(err.strip() or f"{cmd[0]} exited {p.returncode}")
 
 @app.get("/")
 def index():
     return Response(PAGE, mimetype="text/html")
 
+@app.get("/models")
+def models():
+    try:
+        ms = get_llm_models_if_needed()
+    except Exception as e:
+        traceback.print_exc(file=sys.stderr)
+        return Response(json.dumps({"error": str(e)}),
+                        mimetype="application/json", status=500)
+    ids = [m["id"] for m in ms]
+    default = LLM_MODEL if LLM_MODEL in ids else (ids[0] if ids else "")
+    return Response(json.dumps({"models": ms, "default": default}),
+                    mimetype="application/json")
+
 @app.post("/summarize")
 def summarize():
-    target = (request.json or {}).get("url", "").strip()
+    body = request.json or {}
+    target = body.get("url", "").strip()
+    model = (body.get("model") or LLM_MODEL).strip()
     if not target:
         return Response(ndjson("error", "No URL or video ID given."),
                         mimetype="application/x-ndjson", status=400)
- 
+
     @stream_with_context
     def generate():
         try:
@@ -90,16 +68,16 @@ def summarize():
             path = get_transcript_path(target)
             is_empty = True
             summary = ""
-            for chunk in run_stream([LLM_BIN, "-m", LLM_MODEL, "-f", str(path), "-o", "num_ctx", "32768", PROMPT]):
+            for chunk in stream_summary_for_transcript_file(path, model, LLM_PROMPT):
+                summary += chunk
                 if chunk.strip():
-                    summary += chunk
                     is_empty = False
                 yield ndjson("delta", chunk)
             if is_empty:
                 yield ndjson("error",
                              "Model returned nothing. Check `llm logs -n 1`.")
                 return
-            add_summary(video_id, LLM_MODEL, PROMPT, summary)
+            add_summary(video_id, model, LLM_PROMPT, summary)
             yield ndjson("done", "")
         except Exception as e:
             traceback.print_exc(file=sys.stderr)
@@ -128,6 +106,7 @@ main { max-width: 46rem; margin: 0 auto; padding: 1.5rem 1rem 4rem; }
 h1 { font-size: 1.25rem; }
 #f { display: flex; gap: .5rem; margin-bottom: 1rem; }
 #url { flex: 1; min-width: 0; padding: .5rem; font: inherit; }
+#model { flex: 0 1 auto; max-width: 14rem; padding: .5rem; font: inherit; }
 #go { padding: .5rem 1rem; font: inherit; cursor: pointer; }
 #go:disabled { opacity: .75; cursor: progress; }
 #status { min-height: 1.5em; color: var(--muted); font-size: .875rem; }
@@ -144,6 +123,7 @@ summary { cursor: pointer; font-weight: 600; margin: 1rem 0 .5rem; }
   <form id="f">
     <input id="url" name="url" placeholder="YouTube URL or video ID"
            autocomplete="off" autofocus>
+    <select id="model" disabled><option value="">Loading models…</option></select>
     <button id="go">Summarize</button>
   </form>
   <div id="status"></div>
@@ -161,6 +141,7 @@ summary { cursor: pointer; font-weight: 600; margin: 1rem 0 .5rem; }
 
 const f = document.getElementById('f');
 const go = document.getElementById('go');
+const modelEl = document.getElementById('model');
 const statusEl = document.getElementById('status');
 const summaryEl = document.getElementById('summary');
 const transcriptEl = document.getElementById('transcript');
@@ -169,7 +150,39 @@ const tw = document.getElementById('tw');
 const md = window.markdownit
     ? window.markdownit({html: false, linkify: true, breaks: false})
     : null;
- 
+
+async function loadModels() {
+    try {
+        const res = await fetch('/models');
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        const groups = new Map();
+        for (const m of data.models) {
+            if (!groups.has(m.provider)) groups.set(m.provider, []);
+            groups.get(m.provider).push(m.id);
+        }
+        modelEl.innerHTML = '';
+        for (const [provider, ids] of groups) {
+            const og = document.createElement('optgroup');
+            og.label = provider;
+            for (const id of ids) {
+                const o = document.createElement('option');
+                o.value = id;
+                o.textContent = id;
+                og.appendChild(o);
+            }
+        modelEl.appendChild(og);
+    }
+    const saved = localStorage.getItem('ytt.model');
+    modelEl.value = data.models.some(m => m.id === saved) ? saved : data.default;
+    modelEl.disabled = false;
+    } catch (err) {
+        setStatus('Could not list models: ' + err.message, true);
+    }
+}
+loadModels();
+modelEl.addEventListener('change', () => localStorage.setItem('ytt.model', modelEl.value));
+
 function setStatus(text, isError) {
     statusEl.textContent = text;
     statusEl.classList.toggle('error', !!isError);
@@ -200,57 +213,60 @@ function paint() {
 }
  
 f.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const url = document.getElementById('url').value.trim();
-  if (!url) return;
+    e.preventDefault();
+    const url = document.getElementById('url').value.trim();
+    if (!url) return;
+    const model = document.getElementById('model').value.trim();
  
-  go.disabled = true;
-  raw = '';
-  summaryEl.textContent = '';
-  transcriptEl.textContent = '';
-  sw.hidden = true;
-  tw.hidden = true;
-  setStatus('Starting', false);
+    go.disabled = true;
+    raw = '';
+    summaryEl.textContent = '';
+    transcriptEl.textContent = '';
+    sw.hidden = true;
+    tw.hidden = true;
+    setStatus('Starting', false);
  
-  try {
-    const res = await fetch('/summarize', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({url})
-    });
- 
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = '';
- 
-    while (true) {
-      const {done, value} = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, {stream: true});
-      const lines = buf.split('\\n');
-      buf = lines.pop();
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        const msg = JSON.parse(line);
-        if (msg.type === 'status') setStatus(msg.text, false);
-        else if (msg.type === 'transcript') {
-          transcriptEl.textContent = msg.text;
-          tw.hidden = false;
+    try {
+        const res = await fetch('/summarize', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({url, model})
+        });
+     
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+     
+        while (true) {
+            const {done, value} = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, {stream: true});
+            const lines = buf.split('\\n');
+            buf = lines.pop();
+            for (const line of lines) {
+                if (!line.trim()) continue;
+                const msg = JSON.parse(line);
+                if (msg.type === 'status') {
+                    setStatus(msg.text, false);
+                } else if (msg.type === 'transcript') {
+                    transcriptEl.textContent = msg.text;
+                    tw.hidden = false;
+                } else if (msg.type === 'delta') {
+                    raw += msg.text;
+                    setNeedsPaint();
+                    sw.hidden = false;
+                } else if (msg.type === 'error') {
+                    setStatus(msg.text, true);
+                } else if (msg.type === 'done') {
+                    setStatus('', false);
+                }
+            }
         }
-        else if (msg.type === 'delta') {
-          raw += msg.text;
-          setNeedsPaint();
-          sw.hidden = false;
-        }
-        else if (msg.type === 'error') setStatus(msg.text, true);
-        else if (msg.type === 'done') setStatus('', false);
-      }
+    } catch (err) {
+        setStatus(String(err), true);
+    } finally {
+        go.disabled = false;
     }
-  } catch (err) {
-    setStatus(String(err), true);
-  } finally {
-    go.disabled = false;
-  }
 });
 </script>
 </body>
